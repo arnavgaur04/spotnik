@@ -2,37 +2,42 @@ package main
 
 import (
     "context"
-    "bufio"
-    "os"
     "fmt"
     "log"
-    "google.golang.org/genai"
+    "net/http"
+    "os"
+    "os/signal"
+    "syscall"
+    "time"
+    "spotnik/handlers"
 )
 
 func main() {
-    ctx := context.Background()
-    // The client gets the API key from the environment variable `GEMINI_API_KEY`.
-    client, err := genai.NewClient(ctx, nil)
-    if err != nil {
-        log.Fatal(err)
-    }
+    fmt.Println("Starting Server...")
+    http.HandleFunc("/chat", handlers.ChatHandler)
+    
+    server := &http.Server{Addr: ":8080"}
 
-    fmt.Println("Enter prompt below:")
-    reader := bufio.NewReader(os.Stdin)
-    prompt, _ := reader.ReadString('\n')
+    // Listen for Ctrl+C (just like our CLI!)
+    stop := make(chan os.Signal, 1)
+    signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 
-    fmt.Printf("Calling Gemini with prompt %s\n", prompt)
+    // Start server in background
+    go func() {
+        fmt.Println("Server running on http://localhost:8080")
+        if err := server.ListenAndServe(); err != nil {
+            log.Println("Server stopped:", err)
+        }
+    }()
 
-    result, err := client.Models.GenerateContent(
-        ctx,
-        "gemini-3-flash-preview",
-        genai.Text(prompt),
-        nil,
-    )
-    if err != nil {
-        log.Fatal(err)
-    }
+    // Wait for Ctrl+C
+    <-stop
+    fmt.Println("\nShutting down gracefully...")
 
-    fmt.Println("Result:")
-    fmt.Println(result.Text())
+    // Give ongoing requests 5 seconds to finish
+    ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+    defer cancel()
+
+    server.Shutdown(ctx)
+    fmt.Println("Done. Goodbye!")
 }

@@ -10,10 +10,17 @@ import (
     "syscall"
     "time"
     "spotnik/handlers"
+    "spotnik/database"
 )
 
 func main() {
     fmt.Println("Starting Server...")
+
+    err := database.Connect("postgres://arnavgaur@localhost:5432/spotnik?search_path=spotnik&sslmode=disable")
+    if err != nil {
+        log.Fatal(err)
+    }
+
     http.HandleFunc("/chat", handlers.ChatHandler)
     
     server := &http.Server{Addr: ":8080"}

@@ -8,7 +8,7 @@ import (
 )
 
 
-func CallGemini(prompt string) (string, error) {
+func CallGemini(contents []*genai.Content) (string, error) {
     ctx := context.Background()
 
     client, err := genai.NewClient(ctx, nil) 
@@ -19,7 +19,7 @@ func CallGemini(prompt string) (string, error) {
     result, err := client.Models.GenerateContent(
         ctx,
         "gemini-3-flash-preview",
-        genai.Text(prompt),
+        contents,
         nil,
     )
     if err != nil {

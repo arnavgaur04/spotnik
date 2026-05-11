@@ -6,14 +6,17 @@ import (
     "net/http"
     "spotnik/llm"
     "spotnik/database"
+    "spotnik/memory"
+    "spotnik/memory/methods"
 
     "github.com/google/uuid"
     "google.golang.org/genai"
 )
 
 type ChatRequest struct {
-    User    string `json:"user"`
-    Message string `json:"message"`
+    User           string `json:"user"`
+    Message        string `json:"message"`
+    ContextType    int    `json:"context_type"`
 }
 
 func ChatHandler(w http.ResponseWriter, r *http.Request) {
@@ -24,16 +27,11 @@ func ChatHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // Load conversation history from DB
-    history, err := database.LoadHistory(req.User)
-    if err != nil {
-        http.Error(w, "DB error", http.StatusInternalServerError)
-        return
-    }
+    fmt.Println("request: %+v", req)
 
     // Generate Task
     taskID := uuid.New().String()
-    err = database.CreateTask(taskID)
+    err := database.CreateTask(taskID)
     if err != nil {
         fmt.Println(err)
         http.Error(w, "ERROR creating task", http.StatusInternalServerError)
@@ -46,6 +44,14 @@ func ChatHandler(w http.ResponseWriter, r *http.Request) {
     if err != nil {
         fmt.Println(err)
         http.Error(w, "ERROR saving message", http.StatusInternalServerError)
+        return
+    }
+
+    // Load conversation history from DB
+    history, err := memory.LoadContext(req.ContextType, req.User, req.Message)
+    if err != nil {
+        fmt.Println(err)
+        http.Error(w, "DB error", http.StatusInternalServerError)
         return
     }
 
@@ -89,6 +95,20 @@ func ChatHandler(w http.ResponseWriter, r *http.Request) {
     err = database.UpdateMessage(msgID, reply)
     if err != nil {
         http.Error(w, "ERROR saving reply", http.StatusInternalServerError)
+        return
+    }
+
+    embedding, err := methods.GetEmbedding(reply)
+    if err != nil {
+        fmt.Println(err)
+	http.Error(w, "Embedding Error", http.StatusInternalServerError)
+        return
+    }
+
+    err = methods.SaveEmbedding(msgID, embedding)
+    if err != nil {
+        fmt.Println(err)
+        http.Error(w, "Embedding Save Error", http.StatusInternalServerError)
         return
     }
 

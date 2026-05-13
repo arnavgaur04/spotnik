@@ -20,6 +20,14 @@ func RunLocalCommand(name string, args map[string]any) string {
 		// Read the file from disk
 		return executeCat(args["path"].(string))
 
+	case "write_file":
+		path, _ := args["path"].(string)
+		content, _ := args["content"].(string)
+		if path == "" || content == "" {
+			return "Error: path and content are required for write_file"
+		}
+		return executeWrite(path, content)
+
 	default:
 		return "Error: Tool not found"
 	}

@@ -83,10 +83,15 @@ func CallGemini(contents []*genai.Content) (string, error) {
 
 	// 2. The Agentic Loop (Thinking -> Acting -> Observing)
 	for i := 0; i < 10; i++ { // Increased turns to allow deeper exploration
-		result, err := client.Models.GenerateContent(ctx, "gemini-2.5-flash-lite", contents, config)
+		result, err := client.Models.GenerateContent(ctx, "gemini-2.5-flash", contents, config)
 		if err != nil {
 			// Return error instead of log.Fatal to keep server alive
 			return "", fmt.Errorf("generate content error: %w", err)
+		}
+
+		if len(result.Candidates) == 0 || result.Candidates[0].Content == nil {
+			fmt.Println("Warning: Model returned an empty candidate.")
+			return "I'm sorry, I couldn't generate a response. Please check the logs.", nil
 		}
 
 		// Add the model's response (the 'Thought' or 'Call') to history
@@ -107,6 +112,8 @@ func CallGemini(contents []*genai.Content) (string, error) {
 
 			// 4. Run the actual local command from your tools package
 			toolOutput := Tool.RunLocalCommand(part.FunctionCall.Name, part.FunctionCall.Args)
+
+			fmt.Printf("TOOL RESULT for %s: %s\n", part.FunctionCall.Name, toolOutput)
 
 			// 5. Append the observation (Tool Result) to the history
 			contents = append(contents, &genai.Content{

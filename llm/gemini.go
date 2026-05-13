@@ -74,9 +74,8 @@ func CallGemini(contents []*genai.Content) (string, error) {
 		SystemInstruction: &genai.Content{
 			Parts: []*genai.Part{{
 				Text: "You are an autonomous CLI coding assistant. " +
-					"When asked to explain a codebase, do not ask for permission. " +
-					"Immediately call list_files('.') to see the structure, " +
-					"then use cat_file or grep_repo to understand the logic.",
+					"You have several tools available, use them. " +
+					"Never shy away from using the given tools. ",
 			}},
 		},
 	}

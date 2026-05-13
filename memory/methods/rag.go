@@ -47,7 +47,7 @@ func RAGHistory(user, currentMsg string, limit int) ([]database.History, error) 
 	rows, err := database.DB.Query(
 		`SELECT content, output
 		 FROM spotnik.messages
-		 WHERE user = $1
+		 WHERE "user" = $1
 		 AND output IS NOT NULL
 		 AND output != ''
 		 AND embedding IS NOT NULL

@@ -84,6 +84,12 @@ func ChatHandler(w http.ResponseWriter, r *http.Request) {
         Parts: []*genai.Part{{Text: currentMsg}},
     })
 
+    for i, c := range contents {
+    	for _, p := range c.Parts {
+            fmt.Printf("Text: %s\n", p.Text)
+    	}
+    }
+
     // Call Gemini
     reply, err := llm.CallGemini(contents)
     if err != nil {

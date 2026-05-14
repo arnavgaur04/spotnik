@@ -75,14 +75,18 @@ func CallGemini(contents []*genai.Content) (string, error) {
 			Parts: []*genai.Part{{
 				Text: "You are an autonomous CLI coding assistant. " +
 					"You have several tools available, use them. " +
-					"Never shy away from using the given tools. ",
+					"Never shy away from using the given tools. " +
+					"You MUST follow this format for every response:" +
+					"THOUGHT: <explain what you are doing and why>" +
+					"ACTION: <call the relevant tool>" +
+					"Wait for the result, then proceed.",
 			}},
 		},
 	}
 
 	// 2. The Agentic Loop (Thinking -> Acting -> Observing)
 	for i := 0; i < 10; i++ { // Increased turns to allow deeper exploration
-		result, err := client.Models.GenerateContent(ctx, "gemini-2.5-flash", contents, config)
+		result, err := client.Models.GenerateContent(ctx, "gemma-4-31b-it", contents, config)
 		if err != nil {
 			// Return error instead of log.Fatal to keep server alive
 			return "", fmt.Errorf("generate content error: %w", err)

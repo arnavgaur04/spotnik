@@ -4,85 +4,51 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"spotnik/database"
+	contextloader "spotnik/context-loader"
 	"spotnik/llm"
-	"spotnik/memory"
-	"spotnik/memory/methods"
+	"spotnik/utils/structs"
 
-	"github.com/google/uuid"
 	"google.golang.org/genai"
 )
 
-type ChatRequest struct {
-	User        string `json:"user"`
-	Message     string `json:"message"`
-	ContextType int    `json:"context_type"`
-}
-
 func ChatHandler(w http.ResponseWriter, r *http.Request) {
 	// Parse the incoming request
-	var req ChatRequest
+	var req structs.ChatRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid request", http.StatusBadRequest)
 		return
 	}
 
-	// Generate Task
-	taskID := uuid.New().String()
-	err := database.CreateTask(taskID)
+	// Creating an entry for user prompt in history.jsonl
+	err := contextloader.LogTurn("user", req.Message)
 	if err != nil {
 		fmt.Println(err)
-		http.Error(w, "ERROR creating task", http.StatusInternalServerError)
-		return
-	} else {
-		fmt.Println("Task Created:", taskID)
-	}
-
-	// Save the user's message
-	msgID := uuid.New().String()
-	err = database.SaveMessage(msgID, taskID, req.Message, req.User)
-	if err != nil {
-		fmt.Println(err)
-		http.Error(w, "ERROR saving message", http.StatusInternalServerError)
+		http.Error(w, "ERROR logging prompt", http.StatusInternalServerError)
 		return
 	}
 
-	// Load conversation history from DB
-	history, err := memory.LoadContext(req.ContextType, req.User, req.Message)
+	// Load conversation history from history.jsonl
+	context, err := contextloader.LoadContext(10)
 	if err != nil {
 		fmt.Println(err)
-		http.Error(w, "DB error", http.StatusInternalServerError)
+		http.Error(w, "ERROR loading context", http.StatusInternalServerError)
 		return
 	}
 
-	// Build contents with history
+	// Build contents with context
 	contents := []*genai.Content{}
-	for _, h := range history {
-		userText := h.Content
-		modelText := h.Output
-
-		// Only add to history if both content and output exist
-		if h.Content == "" || h.Output == "" {
+	for _, c := range context {
+		// Only add to context if message exist
+		if c.Message == "" {
 			continue // skip incomplete messages
 		}
 		contents = append(contents,
 			&genai.Content{
-				Role:  "user",
-				Parts: []*genai.Part{{Text: userText}},
-			},
-			&genai.Content{
-				Role:  "model",
-				Parts: []*genai.Part{{Text: modelText}},
+				Role:  c.Role,
+				Parts: []*genai.Part{{Text: c.Message}},
 			},
 		)
 	}
-
-	// Add current message
-	currentMsg := req.Message
-	contents = append(contents, &genai.Content{
-		Role:  "user",
-		Parts: []*genai.Part{{Text: currentMsg}},
-	})
 
 	// Call Gemini
 	reply, err := llm.CallGemini(contents)
@@ -93,33 +59,10 @@ func ChatHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Save Gemini's reply
-	err = database.UpdateMessage(msgID, reply)
+	err = contextloader.LogTurn("model", reply)
 	if err != nil {
 		http.Error(w, "ERROR saving reply", http.StatusInternalServerError)
 		return
-	}
-
-	embedding, err := methods.GetEmbedding(reply)
-	if err != nil {
-		fmt.Println(err)
-		http.Error(w, "Embedding Error", http.StatusInternalServerError)
-		return
-	}
-
-	err = methods.SaveEmbedding(msgID, embedding)
-	if err != nil {
-		fmt.Println(err)
-		http.Error(w, "Embedding Save Error", http.StatusInternalServerError)
-		return
-	}
-
-	err = database.UpdateTaskStatus(taskID, "completed")
-	if err != nil {
-		fmt.Println(err)
-		http.Error(w, "ERROR updating task", http.StatusInternalServerError)
-		return
-	} else {
-		fmt.Println("Task:", taskID, "Completed Successfully")
 	}
 
 	// Send reply back

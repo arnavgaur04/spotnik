@@ -62,3 +62,5 @@ tmp/
 .DS_Store
 .AppleDouble
 .LSOverride
+
+history.jsonl

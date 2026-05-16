@@ -23,7 +23,7 @@ func CallGemini(contents []*genai.Content) (string, error) {
 			FunctionDeclarations: []*genai.FunctionDeclaration{
 				{
 					Name:        "grep_repo",
-					Description: "Search for text in the local codebase",
+					Description: "Search for text in the local codebase/folder. Use this whenver you want to search for specific words, phrases, or patterns inside text files.",
 					Parameters: &genai.Schema{
 						Type: genai.TypeObject,
 						Properties: map[string]*genai.Schema{
@@ -34,7 +34,7 @@ func CallGemini(contents []*genai.Content) (string, error) {
 				},
 				{
 					Name:        "list_files",
-					Description: "List files in the project directory to see structure",
+					Description: "List files in the project directory to see structure - Never guess the repo structure.",
 					Parameters: &genai.Schema{
 						Type: genai.TypeObject,
 						Properties: map[string]*genai.Schema{
@@ -44,7 +44,7 @@ func CallGemini(contents []*genai.Content) (string, error) {
 				},
 				{
 					Name:        "cat_file",
-					Description: "Read the full content of a specific file",
+					Description: "Read the full content of a specific file. Use this whenever you want to understand or go through the file contents.",
 					Parameters: &genai.Schema{
 						Type: genai.TypeObject,
 						Properties: map[string]*genai.Schema{
@@ -55,7 +55,7 @@ func CallGemini(contents []*genai.Content) (string, error) {
 				},
 				{
 					Name:        "write_file",
-					Description: "Overwrite a file with new content. Use this to apply edits.",
+					Description: "Overwrite a file with new content. Use this to apply edits or changes.",
 					Parameters: &genai.Schema{
 						Type: genai.TypeObject,
 						Properties: map[string]*genai.Schema{
@@ -71,22 +71,34 @@ func CallGemini(contents []*genai.Content) (string, error) {
 
 	config := &genai.GenerateContentConfig{
 		Tools: tools,
+		ToolConfig: &genai.ToolConfig{
+			FunctionCallingConfig: &genai.FunctionCallingConfig{
+				Mode: genai.FunctionCallingConfigModeAuto,
+				// Or use FunctionCallingConfigModeAny to FORCE at least one tool call
+			},
+		},
 		SystemInstruction: &genai.Content{
 			Parts: []*genai.Part{{
-				Text: "You are an autonomous CLI coding assistant. " +
-					"You have several tools available, use them. " +
-					"Never shy away from using the given tools. " +
-					"You MUST follow this format for every response:" +
-					"THOUGHT: <explain what you are doing and why>" +
-					"ACTION: <call the relevant tool>" +
-					"Wait for the result, then proceed.",
+				Text: `You are an autonomous CLI coding assistant with access to file system tools.
+        
+        RULES (mandatory):
+        - NEVER guess file contents — always use cat_file to read them.
+        - NEVER assume folder structure — always use list_files first.
+        - NEVER answer questions about code without grounding your answer in tool results.
+        - If a tool returns an error, try to fix the input and retry once before giving up.
+        
+        FORMAT for every turn:
+        THOUGHT: <what you know, what you need to find out>
+        ACTION: <call the appropriate tool>
+        
+        Wait for the tool result before proceeding.`,
 			}},
 		},
 	}
 
 	// 2. The Agentic Loop (Thinking -> Acting -> Observing)
 	for i := 0; i < 10; i++ { // Increased turns to allow deeper exploration
-		result, err := client.Models.GenerateContent(ctx, "gemma-4-31b-it", contents, config)
+		result, err := client.Models.GenerateContent(ctx, "gemini-3.1-flash-lite-preview", contents, config)
 		if err != nil {
 			// Return error instead of log.Fatal to keep server alive
 			return "", fmt.Errorf("generate content error: %w", err)
@@ -105,6 +117,11 @@ func CallGemini(contents []*genai.Content) (string, error) {
 
 		// 3. Process every part of the model's response
 		for _, part := range modelResponse.Parts {
+			// Log text parts (the model's reasoning)
+			if part.Text != "" {
+				fmt.Printf("<<<<<<THINKING>>>>>>: %s\n", part.Text)
+			}
+
 			// CRITICAL: Skip parts that are just text (Prevents nil pointer panic)
 			if part.FunctionCall == nil {
 				continue

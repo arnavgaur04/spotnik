@@ -2,10 +2,11 @@ package llm
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
-	Tool "spotnik/tools" // Ensure this matches your module name in go.mod
+	contextloader "spotnik/context-loader"
+	Tool "spotnik/tools"
+	"spotnik/models"
 
 	"google.golang.org/genai"
 )
@@ -18,145 +19,73 @@ func CallGemini(contents []*genai.Content) (string, error) {
 	}
 
 	// 1. Define the full toolset so the AI knows its capabilities
-	tools := []*genai.Tool{
-		{
-			FunctionDeclarations: []*genai.FunctionDeclaration{
-				{
-					Name:        "grep_repo",
-					Description: "Search for text in the local codebase/folder. Use this whenver you want to search for specific words, phrases, or patterns inside text files.",
-					Parameters: &genai.Schema{
-						Type: genai.TypeObject,
-						Properties: map[string]*genai.Schema{
-							"query": {Type: genai.TypeString, Description: "Search string"},
-						},
-						Required: []string{"query"},
-					},
-				},
-				{
-					Name:        "list_files",
-					Description: "List files in the project directory to see structure - Never guess the repo structure.",
-					Parameters: &genai.Schema{
-						Type: genai.TypeObject,
-						Properties: map[string]*genai.Schema{
-							"path": {Type: genai.TypeString, Description: "Path to list (use '.' for root)"},
-						},
-					},
-				},
-				{
-					Name:        "cat_file",
-					Description: "Read the full content of a specific file. Use this whenever you want to understand or go through the file contents.",
-					Parameters: &genai.Schema{
-						Type: genai.TypeObject,
-						Properties: map[string]*genai.Schema{
-							"path": {Type: genai.TypeString, Description: "Relative path to the file"},
-						},
-						Required: []string{"path"},
-					},
-				},
-				{
-					Name:        "write_file",
-					Description: "Overwrite a file with new content. Use this to apply edits or changes.",
-					Parameters: &genai.Schema{
-						Type: genai.TypeObject,
-						Properties: map[string]*genai.Schema{
-							"path":    {Type: genai.TypeString, Description: "Path to the file"},
-							"content": {Type: genai.TypeString, Description: "The full new content of the file"},
-						},
-						Required: []string{"path", "content"},
-					},
-				},
-			},
-		},
-	}
-
-	config := &genai.GenerateContentConfig{
-		Tools: tools,
-		ToolConfig: &genai.ToolConfig{
-			FunctionCallingConfig: &genai.FunctionCallingConfig{
-				Mode: genai.FunctionCallingConfigModeAuto,
-				// Or use FunctionCallingConfigModeAny to FORCE at least one tool call
-			},
-		},
-		SystemInstruction: &genai.Content{
-			Parts: []*genai.Part{{
-				Text: `You are an autonomous CLI coding assistant with access to file system tools.
-        
-        RULES (mandatory):
-        - NEVER guess file contents — always use cat_file to read them.
-        - NEVER assume folder structure — always use list_files first.
-        - NEVER answer questions about code without grounding your answer in tool results.
-        - If a tool returns an error, try to fix the input and retry once before giving up.
-        
-        FORMAT for every turn:
-        THOUGHT: <what you know, what you need to find out>
-        ACTION: <call the appropriate tool>
-        
-        Wait for the tool result before proceeding.`,
-			}},
-		},
-	}
+	config := Tool.GetGeminiConfig()
 
 	// 2. The Agentic Loop (Thinking -> Acting -> Observing)
-	for i := 0; i < 10; i++ { // Increased turns to allow deeper exploration
+	for i := 0; i < 100; i++ {
 		result, err := client.Models.GenerateContent(ctx, "gemini-3.1-flash-lite-preview", contents, config)
 		if err != nil {
-			// Return error instead of log.Fatal to keep server alive
 			return "", fmt.Errorf("generate content error: %w", err)
 		}
 
-		if len(result.Candidates) == 0 || result.Candidates[0].Content == nil {
-			fmt.Println("Warning: Model returned an empty candidate.")
-			return "I'm sorry, I couldn't generate a response. Please check the logs.", nil
-		}
-
-		// Add the model's response (the 'Thought' or 'Call') to history
 		modelResponse := result.Candidates[0].Content
 		contents = append(contents, modelResponse)
 
+		var toolCallBlocks []models.ContentBlock
+		var modelText string
 		hasToolCall := false
 
-		// 3. Process every part of the model's response
+		// First pass — collect everything, log model turn FIRST
 		for _, part := range modelResponse.Parts {
-			// Log text parts (the model's reasoning)
 			if part.Text != "" {
-				fmt.Printf("<<<<<<THINKING>>>>>>: %s\n", part.Text)
+				modelText = part.Text
+				fmt.Printf("THOUGHT: %s\n", part.Text)
 			}
+			if part.FunctionCall != nil {
+				hasToolCall = true
+				toolCallBlocks = append(toolCallBlocks, models.ContentBlock{
+					Type:      "tool_use",
+					Name:      part.FunctionCall.Name,
+					Input:     part.FunctionCall.Args,
+					ToolUseID: part.FunctionCall.ID,
+				})
+			}
+		}
 
-			// CRITICAL: Skip parts that are just text (Prevents nil pointer panic)
+		// ✅ Log model turn BEFORE any tool execution or tool result logging
+		contextloader.LogModelResponse(modelText, toolCallBlocks)
+
+		// Second pass — execute tools and log results AFTER model turn
+		var funcRespParts []*genai.Part
+		for _, part := range modelResponse.Parts {
 			if part.FunctionCall == nil {
 				continue
 			}
 
-			hasToolCall = true
-			fmt.Printf("Turn %d: Executing tool %s\n", i+1, part.FunctionCall.Name)
-
-			// 4. Run the actual local command from your tools package
 			toolOutput := Tool.RunLocalCommand(part.FunctionCall.Name, part.FunctionCall.Args)
+			fmt.Printf("TOOL RESULT [%s]: %s\n", part.FunctionCall.Name, toolOutput)
 
-			fmt.Printf("TOOL RESULT for %s: %s\n", part.FunctionCall.Name, toolOutput)
+			contextloader.LogToolResult(part.FunctionCall.ID, part.FunctionCall.Name, toolOutput)
 
-			// 5. Append the observation (Tool Result) to the history
+			funcRespParts = append(funcRespParts, &genai.Part{
+				FunctionResponse: &genai.FunctionResponse{
+					ID:       part.FunctionCall.ID,
+					Name:     part.FunctionCall.Name,
+					Response: map[string]any{"result": toolOutput},
+				},
+			})
+		}
+		if len(funcRespParts) > 0 {
 			contents = append(contents, &genai.Content{
-				Role: "tool",
-				Parts: []*genai.Part{{
-					FunctionResponse: &genai.FunctionResponse{
-						ID:       part.FunctionCall.ID, // Links response to the specific call
-						Name:     part.FunctionCall.Name,
-						Response: map[string]any{"result": toolOutput},
-					},
-				}},
+				Role:  "user",
+				Parts: funcRespParts,
 			})
 		}
 
-		// Optional: Log the raw response for debugging
-		rawJSON, _ := json.MarshalIndent(result, "", "  ")
-		_ = rawJSON // Use it or discard it
-
-		// If the AI didn't call any tools, it has provided its final text answer
 		if !hasToolCall {
 			return result.Text(), nil
 		}
 	}
 
-	return "The agent reached the maximum number of turns without a final answer.", nil
+	return "Max turns reached.", nil
 }

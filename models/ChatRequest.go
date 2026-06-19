@@ -1,4 +1,4 @@
-package structs
+package models
 
 type ChatRequest struct {
 	User        string `json:"user"`

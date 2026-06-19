@@ -3,73 +3,101 @@ package contextloader
 import (
 	"bufio"
 	"encoding/json"
-	"fmt"
 	"os"
-	"spotnik/utils/structs"
+	"spotnik/models"
 	"time"
 
 	"github.com/google/uuid"
 )
 
-// LoadContext loads the context from history.jsonl
-func LoadContext(maxTurns int) ([]structs.ChatTurn, error) {
-	fmt.Println("Starting loading Context")
+const historyFile = "history.jsonl"
 
-	// Read from history.jsonl file
-	file, err := os.Open("history.jsonl")
+func appendTurn(turn models.Turn) error {
+	f, err := os.OpenFile(historyFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	return json.NewEncoder(f).Encode(turn)
+}
+
+// LogUserMessage - plain text from user
+func LogUserMessage(text string) error {
+	return appendTurn(models.Turn{
+		UUID:      uuid.NewString(),
+		Timestamp: time.Now(),
+		Message: models.Message{
+			Role: "user",
+			Content: []models.ContentBlock{
+				{Type: "text", Text: text},
+			},
+		},
+	})
+}
+
+// LogModelResponse - model text + any tool calls together in one turn
+func LogModelResponse(text string, toolCalls []models.ContentBlock) error {
+	content := []models.ContentBlock{}
+	if text != "" {
+		content = append(content, models.ContentBlock{
+			Type: "text",
+			Text: text,
+		})
+	}
+	content = append(content, toolCalls...)
+	return appendTurn(models.Turn{
+		UUID:      uuid.NewString(),
+		Timestamp: time.Now(),
+		Message: models.Message{
+			Role:    "model",
+			Content: content,
+		},
+	})
+}
+
+// LogToolResult - tool result goes in a "user" role message (same as Claude Code)
+func LogToolResult(toolUseID, toolName, result string) error {
+	return appendTurn(models.Turn{
+		UUID:      uuid.NewString(),
+		Timestamp: time.Now(),
+		Message: models.Message{
+			Role: "user",
+			Content: []models.ContentBlock{
+				{
+					Type:      "tool_result",
+					ToolUseID: toolUseID,
+					Name:      toolName,
+					Content:   result,
+				},
+			},
+		},
+	})
+}
+
+// LoadContext loads last N turns from history
+func LoadContext(limit int) ([]models.Turn, error) {
+	f, err := os.Open(historyFile)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return []structs.ChatTurn{}, nil
+			return nil, nil
 		}
 		return nil, err
 	}
-	defer file.Close()
+	defer f.Close()
 
-	var allTurns []structs.ChatTurn
-	scanner := bufio.NewScanner(file)
-
+	var turns []models.Turn
+	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
-		var turn structs.ChatTurn
+		var turn models.Turn
 		if err := json.Unmarshal(scanner.Bytes(), &turn); err != nil {
-			return nil, err
+			continue
 		}
-		allTurns = append(allTurns, turn)
+		turns = append(turns, turn)
 	}
 
-	fmt.Println("Successfully loaded data.jsonl")
-
-	// If history is shorter than maxTurns, return everything
-	if len(allTurns) <= maxTurns {
-		return allTurns, nil
+	// Return last N turns
+	if len(turns) > limit {
+		turns = turns[len(turns)-limit:]
 	}
-
-	// Slice out only the last N elements (e.g., last 10 elements)
-	return allTurns[len(allTurns)-maxTurns:], nil
-}
-
-// LogTurn appends a chat message directly to history.jsonl
-func LogTurn(role, message string) error {
-	// Open the file in append-only mode. Create it if it doesn't exist.
-	// 0644 grants read/write permissions to the owner.
-	file, err := os.OpenFile("history.jsonl", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
-	if err != nil {
-		return fmt.Errorf("failed to open history file: %w", err)
-	}
-	defer file.Close()
-
-	logID := uuid.New().String()
-	turn := structs.ChatTurn{
-		ID:        logID,
-		Role:      role,
-		Message:   message,
-		Timestamp: time.Now(),
-	}
-
-	// json.NewEncoder writes directly to the file and appends the trailing \n automatically
-	encoder := json.NewEncoder(file)
-	if err := encoder.Encode(turn); err != nil {
-		return fmt.Errorf("failed to encode JSON: %w", err)
-	}
-
-	return nil
+	return turns, scanner.Err()
 }

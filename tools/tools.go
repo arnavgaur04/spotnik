@@ -1,9 +1,12 @@
 package tools
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
+	"time"
 )
 
 func RunLocalCommand(name string, args map[string]any) string {
@@ -27,6 +30,13 @@ func RunLocalCommand(name string, args map[string]any) string {
 			return "Error: path and content are required for write_file"
 		}
 		return executeWrite(path, content)
+
+	case "bash":
+		command, _ := args["command"].(string)
+		if command == "" {
+			return "Error: command is required"
+		}
+		return executeBash(command)
 
 	default:
 		return "Error: Tool not found"
@@ -81,4 +91,28 @@ func executeWrite(path string, content string) string {
 		return fmt.Sprintf("Error writing to file %s: %v", path, err)
 	}
 	return fmt.Sprintf("Successfully updated %s", path)
+}
+
+func executeBash(command string) string {
+	// Basic guard against accidental destruction
+	dangerous := []string{"rm -rf /", "mkfs", "dd if=/dev/zero", ":(){:|:&};:"}
+	for _, d := range dangerous {
+		if strings.Contains(command, d) {
+			return "ERROR: Blocked potentially destructive command"
+		}
+	}
+
+	cmd := exec.Command("bash", "-c", command)
+	cmd.Dir = "." // lock to project directory
+
+	// Timeout so a bad command doesn't hang forever
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	cmd = exec.CommandContext(ctx, "bash", "-c", command)
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Sprintf("ERROR: %v\nOUTPUT: %s", err, string(output))
+	}
+	return string(output)
 }

@@ -15,23 +15,23 @@ func ChatHandler(w http.ResponseWriter, r *http.Request) {
 	// Parse the incoming request
 	var req models.ChatRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request", http.StatusBadRequest)
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("Invalid request: %v", err))
 		return
 	}
 
 	// Creating an entry for user prompt in history.jsonl
 	err := contextloader.LogUserMessage(req.Message)
 	if err != nil {
-		fmt.Println(err)
-		http.Error(w, "ERROR logging prompt", http.StatusInternalServerError)
+		fmt.Printf("ERROR: %v\n", err)
+		writeError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to log prompt: %v", err))
 		return
 	}
 
 	// Load conversation history from history.jsonl
 	context, err := contextloader.LoadContext(10)
 	if err != nil {
-		fmt.Println(err)
-		http.Error(w, "ERROR loading context", http.StatusInternalServerError)
+		fmt.Printf("ERROR: %v\n", err)
+		writeError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to load context: %v", err))
 		return
 	}
 
@@ -110,14 +110,20 @@ func ChatHandler(w http.ResponseWriter, r *http.Request) {
 	contents = sanitizeContents(contents)
 	reply, err := llm.CallGemini(contents)
 	if err != nil {
-		fmt.Println(err)
-		http.Error(w, "LLM error", http.StatusInternalServerError)
+		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
 	// Send reply back
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"reply": reply})
+}
+
+func writeError(w http.ResponseWriter, status int, msg string) {
+	fmt.Printf("ERROR: %s\n", msg)
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	json.NewEncoder(w).Encode(map[string]string{"error": msg})
 }
 
 func sanitizeContents(contents []*genai.Content) []*genai.Content {

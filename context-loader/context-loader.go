@@ -3,6 +3,7 @@ package contextloader
 import (
 	"bufio"
 	"encoding/json"
+	"fmt"
 	"os"
 	"spotnik/models"
 	"time"
@@ -90,6 +91,7 @@ func LoadContext(limit int) ([]models.Turn, error) {
 	for scanner.Scan() {
 		var turn models.Turn
 		if err := json.Unmarshal(scanner.Bytes(), &turn); err != nil {
+			fmt.Printf("WARNING: skipping malformed history line: %v\n", err)
 			continue
 		}
 		turns = append(turns, turn)

@@ -73,7 +73,8 @@ func CallGemini(contents []*genai.Content) (string, error) {
 					if res.IsError() {
 						fmt.Printf("TOOL ERROR [%s]: %s\n", call.Name, res.Error)
 					} else {
-						fmt.Printf("TOOL RESULT [%s]: %d bytes\n", call.Name, len(res.Output))
+						preview := strings.SplitN(res.Output, "\n", 2)[0]
+						fmt.Printf("TOOL RESULT [%s]: %s\n", call.Name, preview)
 					}
 				} else {
 					res = tools.ToolResult{ID: call.ID, Name: call.Name, Output: guard.Message}
@@ -85,7 +86,8 @@ func CallGemini(contents []*genai.Content) (string, error) {
 				if res.IsError() {
 					fmt.Printf("TOOL ERROR [%s]: %s\n", call.Name, res.Error)
 				} else {
-					fmt.Printf("TOOL RESULT [%s]: %d bytes\n", call.Name, len(res.Output))
+					preview := strings.SplitN(res.Output, "\n", 2)[0]
+					fmt.Printf("TOOL RESULT [%s]: %s\n", call.Name, preview)
 				}
 			}
 

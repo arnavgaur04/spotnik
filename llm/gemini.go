@@ -3,6 +3,7 @@ package llm
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	contextloader "spotnik/context-loader"
 	Tool "spotnik/tools"
@@ -22,10 +23,10 @@ func CallGemini(contents []*genai.Content) (string, error) {
 	config := Tool.GetGeminiConfig()
 
 	// 2. The Agentic Loop (Thinking -> Acting -> Observing)
-	for i := 0; i < 100; i++ {
+	for turn := 0; turn < 100; turn++ {
 		result, err := client.Models.GenerateContent(ctx, "gemini-3.1-flash-lite-preview", contents, config)
 		if err != nil {
-			return "", fmt.Errorf("generate content error: %w", err)
+			return "", fmt.Errorf("turn %d: generate content error: %w", turn+1, err)
 		}
 
 		modelResponse := result.Candidates[0].Content
@@ -53,7 +54,9 @@ func CallGemini(contents []*genai.Content) (string, error) {
 		}
 
 		// ✅ Log model turn BEFORE any tool execution or tool result logging
-		contextloader.LogModelResponse(modelText, toolCallBlocks)
+		if err := contextloader.LogModelResponse(modelText, toolCallBlocks); err != nil {
+			fmt.Printf("WARNING: failed to log model turn: %v\n", err)
+		}
 
 		// Second pass — execute tools and log results AFTER model turn
 		var funcRespParts []*genai.Part
@@ -63,9 +66,15 @@ func CallGemini(contents []*genai.Content) (string, error) {
 			}
 
 			toolOutput := Tool.RunLocalCommand(part.FunctionCall.Name, part.FunctionCall.Args)
-			fmt.Printf("TOOL RESULT [%s]: %s\n", part.FunctionCall.Name, toolOutput)
+			if strings.HasPrefix(toolOutput, "ERROR:") {
+				fmt.Printf("TOOL ERROR [%s]: %s\n", part.FunctionCall.Name, toolOutput)
+			} else {
+				fmt.Printf("TOOL RESULT [%s]: %s\n", part.FunctionCall.Name, toolOutput)
+			}
 
-			contextloader.LogToolResult(part.FunctionCall.ID, part.FunctionCall.Name, toolOutput)
+			if err := contextloader.LogToolResult(part.FunctionCall.ID, part.FunctionCall.Name, toolOutput); err != nil {
+				fmt.Printf("WARNING: failed to log tool result: %v\n", err)
+			}
 
 			funcRespParts = append(funcRespParts, &genai.Part{
 				FunctionResponse: &genai.FunctionResponse{

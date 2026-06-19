@@ -7,6 +7,7 @@ require (
 	github.com/lib/pq v1.12.3
 	github.com/pgvector/pgvector-go v0.3.0
 	google.golang.org/genai v1.56.0
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (

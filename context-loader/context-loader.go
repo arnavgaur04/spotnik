@@ -5,16 +5,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"spotnik/config"
 	"spotnik/models"
 	"time"
 
 	"github.com/google/uuid"
 )
 
-const historyFile = "history.jsonl"
-
 func appendTurn(turn models.Turn) error {
-	f, err := os.OpenFile(historyFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	f, err := os.OpenFile(config.Current.HistoryFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		return err
 	}
@@ -77,7 +76,7 @@ func LogToolResult(toolUseID, toolName, result string) error {
 
 // LoadContext loads last N turns from history
 func LoadContext(limit int) ([]models.Turn, error) {
-	f, err := os.Open(historyFile)
+	f, err := os.Open(config.Current.HistoryFile)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil

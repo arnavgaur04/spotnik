@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"spotnik/config"
 	contextloader "spotnik/context-loader"
 	"spotnik/llm"
 	"spotnik/models"
@@ -28,7 +29,7 @@ func ChatHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Load conversation history from history.jsonl
-	context, err := contextloader.LoadContext(10)
+	context, err := contextloader.LoadContext(config.Current.ContextLimit)
 	if err != nil {
 		fmt.Printf("ERROR: %v\n", err)
 		writeError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to load context: %v", err))

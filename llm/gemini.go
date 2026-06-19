@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"spotnik/config"
 	contextloader "spotnik/context-loader"
 	Tool "spotnik/tools"
 	"spotnik/models"
@@ -20,11 +21,11 @@ func CallGemini(contents []*genai.Content) (string, error) {
 	}
 
 	// 1. Define the full toolset so the AI knows its capabilities
-	config := Tool.GetGeminiConfig()
+	toolConfig := Tool.GetGeminiConfig()
 
 	// 2. The Agentic Loop (Thinking -> Acting -> Observing)
-	for turn := 0; turn < 100; turn++ {
-		result, err := client.Models.GenerateContent(ctx, "gemini-3.1-flash-lite-preview", contents, config)
+	for turn := 0; turn < config.Current.MaxTurns; turn++ {
+		result, err := client.Models.GenerateContent(ctx, config.Current.Model, contents, toolConfig)
 		if err != nil {
 			return "", fmt.Errorf("turn %d: generate content error: %w", turn+1, err)
 		}

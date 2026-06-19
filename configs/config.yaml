@@ -1,0 +1,6 @@
+port: 8080
+model: gemini-3.1-flash-lite-preview
+context_limit: 10
+history_file: history.jsonl
+max_turns: 100
+shutdown_timeout: 5

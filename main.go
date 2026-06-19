@@ -7,36 +7,38 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"spotnik/config"
 	"spotnik/handlers"
 	"syscall"
 	"time"
 )
 
 func main() {
+	if err := config.Load(); err != nil {
+		log.Fatalf("Failed to load config: %v", err)
+	}
+
+	addr := fmt.Sprintf(":%d", config.Current.Port)
 	fmt.Println("Starting Server...")
 
 	http.HandleFunc("/chat", handlers.ChatHandler)
 
-	server := &http.Server{Addr: ":8080"}
+	server := &http.Server{Addr: addr}
 
-	// Listen for Ctrl+C (just like our CLI!)
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 
-	// Start server in background
 	go func() {
-		fmt.Println("Server running on http://localhost:8080")
+		fmt.Printf("Server running on http://localhost%s\n", addr)
 		if err := server.ListenAndServe(); err != nil {
 			log.Println("Server stopped:", err)
 		}
 	}()
 
-	// Wait for Ctrl+C
 	<-stop
 	fmt.Println("Shutting down gracefully...")
 
-	// Give ongoing requests 5 seconds to finish
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(config.Current.ShutdownTimeout)*time.Second)
 	defer cancel()
 
 	server.Shutdown(ctx)
